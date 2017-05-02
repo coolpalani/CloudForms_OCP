@@ -2,27 +2,21 @@
 # Description: <Method description here>
 #
 
-def log(level, msg)
-  $evm.log(level, msg)
-  # p msg
-end
+template = $evm.root['dialog_template']
+# ems_id   = $evm.root['dialog_ems_id']
 
-$evm.root.attributes.sort.each { |k, v| log(:info, "Root:<$evm.root> Attribute - #{k}: #{v}")}
-
-template      = $evm.root['dialog_template']
-
-###########################
-# Do stuff...
-###########################
-
-container_template = $evm.vmdb('container_template').find_by(:name => template)
+# Must us 'find_by' otherwise 'container_template_parameters' method isn't present
+# container_template = $evm.vmdb('container_template').find_by(:name => template)
+# container_template = $evm.vmdb('container_template').where(:name => template, :ems_id => ems_id)
+# container_template = $evm.vmdb('container_template').where(:id => template)
+container_template = $evm.vmdb('container_template').find_by(:id => template)
 
 if container_template.nil?
   display_string = "Select template above...\n"
 else
   display_string = ""
   container_template.container_template_parameters.each do |param|
-    $evm.log(:info, param.name)
+    # $evm.log(:info, param.name)
     display_string += "#{param.name}=#{param.value}\n"
   end
   display_string = "Template has no parameters\n" if display_string.length == 0

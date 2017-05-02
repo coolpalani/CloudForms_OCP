@@ -44,6 +44,7 @@ $evm.root.attributes.sort.each { |k, v| log(:info, "Root:<$evm.root> Attribute -
 
 require 'rest-client'
 
+ems_id        = $evm.root['dialog_ems_id']
 project       = $evm.root['dialog_project']
 template      = $evm.root['dialog_template']
 template_parameters      = $evm.root['dialog_template_parameters']
@@ -58,20 +59,26 @@ log(:info, "template_parameters: #{template_parameters}")
 
 parameters_array = []
 
-template_parameters.split("\n").each do | parameter |
-  parameter_split = parameter.match(/(.*)=(.*)/)
-  key = parameter_split[1]
-  value = parameter_split[2]
-  parameters_array << {:name=>key, :value=>value}
+empty_values = false
+unless template_parameters.match(/(Template has no parameters|Select template above)/) || template_parameters.nil?
+  template_parameters.split("\n").each do | parameter |
+    parameter_split = parameter.match(/(.*)=(.*)/)
+    key = parameter_split[1]
+    value = parameter_split[2]
+    empty_values = true if value.empty?
+    parameters_array << {:name=>key, :value=>value}
+  end
+  raise "Empty parameter values detected" if empty_values
 end
 
 log(:info, "parameters_array: #{parameters_array}")
 
-project = new_project if project == '< Create new project >'
+project = new_project if project == '< Create new project >' || project.nil?
 
-ems = $evm.vmdb('ManageIQ_Providers_ContainerManager').first
-# # ems = $evm.vmdb('ext_management_system').where("type = 'ManageIQ::Providers::OpenshiftEnterprise::ContainerManager'").first
+ems = $evm.vmdb('ManageIQ_Providers_ContainerManager').where(:id => ems_id)
+raise "EMS lookup failed" if ems.nil?
 log(:info, ems.inspect)
+ems = ems.first
 
 OSE_HOST  = ems.hostname
 OSE_PORT  = ems.port
@@ -88,7 +95,10 @@ URL   = "https://#{OSE_HOST}:#{OSE_PORT}"
 # Do stuff...
 ###########################
 
-container_template = $evm.vmdb('container_template').find_by(:name => template)
+# Must us 'find_by' otherwise 'objects' method isn't present
+# container_template = $evm.vmdb('container_template').find_by(:name => template)
+# container_template = $evm.vmdb('container_template').where(:name => template, :ems_id => ems_id)
+container_template = $evm.vmdb('container_template').find_by(:id => template)
 raise 'Container template not found' if container_template.nil?
 
 container_template.objects.each do |resource|
@@ -98,18 +108,20 @@ container_template.objects.each do |resource|
   payload = resource
 
   case resource[:kind]
+  when "Secret"
+    log(:info, "Dropping #{resource[:kind]}")
+    next
   when "Service"
     query = "/api/v1/namespaces/#{project}/services"
 
-    # Replace variablised parameters
-    parameters_array.each do |parm| payload = replace_parameters(payload, parm[:name], parm[:value]) end
-
     # Set requested port
-    begin
-      payload[:spec][:ports].first[:port] = port.to_i
-    rescue => err
-      log(:warn, "There was a problem setting the requested port")
-      log(:warn, err)
+    unless port.nil?
+      begin
+        payload[:spec][:ports].first[:port] = port.to_i
+      rescue => err
+        log(:warn, "There was a problem setting the requested port")
+        log(:warn, err)
+      end
     end
 
   when "DeploymentConfig"
@@ -122,37 +134,50 @@ container_template.objects.each do |resource|
       log(:warn, "Container name not found in template spec")
     end
 
-    # Override the secret referenced parameters
-    payload[:spec][:template][:spec][:containers].first[:env] = parameters_array
-
-    # Replace variablised parameters
-    parameters_array.each do |parm| payload = replace_parameters(payload, parm[:name], parm[:value]) end
+    # Override the parameters with those from the dialogue unless template has no parameters
+    payload[:spec][:template][:spec][:containers].first[:env] = parameters_array unless parameters_array.empty?
 
     # Set container resources
-    begin
-      container_resources = {
-        :limits=>{:cpu=>"#{cpu}m", :memory=>"#{ram}Mi"},
-        :requests=>{:cpu=>"#{cpu.to_i/2}m", :memory=>"#{ram.to_i/2}Mi"}
-      }
-      payload[:spec][:template][:spec][:containers].first[:resources] = container_resources
-    rescue => err
-      log(:warn, "There was a problem setting the requested limits")
-      log(:warn, err)
+    unless cpu.nil? || ram.nil?
+      begin
+        container_resources = {
+          :limits=>{:cpu=>"#{cpu}m", :memory=>"#{ram}Mi"},
+          :requests=>{:cpu=>"#{cpu.to_i/2}m", :memory=>"#{ram.to_i/2}Mi"}
+        }
+        payload[:spec][:template][:spec][:containers].first[:resources] = container_resources
+      rescue => err
+        log(:warn, "There was a problem setting the requested limits")
+        log(:warn, err)
+      end
     end
 
     # Set requested port
-    begin
-      payload[:spec][:template][:spec][:containers].first[:livenessProbe][:tcpSocket][:port] = port.to_i
-      payload[:spec][:template][:spec][:containers].first[:ports].first[:containerPort] = port.to_i
-    rescue => err
-      log(:warn, "There was a problem setting the requested port")
-      log(:warn, err)
+    unless port.nil?
+      begin
+        payload[:spec][:template][:spec][:containers].first[:livenessProbe][:tcpSocket][:port] = port.to_i
+        payload[:spec][:template][:spec][:containers].first[:ports].first[:containerPort] = port.to_i
+      rescue => err
+        log(:warn, "There was a problem setting the requested port")
+        log(:warn, err)
+      end
     end
 
+  when "ReplicationController"
+    query = "/api/v1/namespaces/#{project}/replicationcontrollers"
+
+  when "ConfigMap"
+    query = "/api/v1/namespaces/#{project}/configmaps"
+    
   else
-    log(:info, "Dropping #{resource[:kind]}")
-    next
+    # Testing...
+    log(:warn, "Testing #{resource[:kind]}")
+    query = "/api/v1/namespaces/#{project}/#{resource[:kind].downcase}s"
+    # log(:warn, "Dropping #{resource[:kind]}")
+    # next
   end
+
+  # Replace variablised parameters
+  parameters_array.each do |parm| payload = replace_parameters(payload, parm[:name], parm[:value]) end
 
   log(:info, payload)
   call_rest("#{URL}#{query}", payload)

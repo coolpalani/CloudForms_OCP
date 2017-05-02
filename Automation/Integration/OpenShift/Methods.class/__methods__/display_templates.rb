@@ -1,18 +1,20 @@
 #
 # Description: <Method description here>
 #
-  
+
+ems_id = $evm.root['dialog_ems_id']
+
 values = {}
 
-templates = $evm.vmdb('container_template')
+templates = $evm.vmdb('container_template').where(:ems_id => ems_id)
 raise "VMDB lookup failed" if templates.nil?
 
-templates.all.each do |template|
+templates.each do |template|
   if template.respond_to?(:deleted_on)
     next unless template.deleted_on.nil?
   end
-  $evm.log(:info, template.name)
-  values[template.name] = template.name
+  $evm.log(:info, "#{template.name}: #{template.id}")
+  values[template.id] = template.name
 end
 
 if values.empty?

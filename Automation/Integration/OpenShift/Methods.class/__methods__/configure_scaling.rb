@@ -10,15 +10,17 @@ $evm.root.attributes.sort.each { |k, v| log(:info, "Root:<$evm.root> Attribute -
 
 require 'rest-client'
 
+ems_id        = $evm.root['dialog_ems_id']
 project       = $evm.root['dialog_project']
 new_project   = $evm.root['dialog_new_project']
 autoscale     = $evm.root['dialog_autoscale']
 
 project = new_project if project == '< Create new project >'
 
-ems = $evm.vmdb('ManageIQ_Providers_ContainerManager').first
-# # ems = $evm.vmdb('ext_management_system').where("type = 'ManageIQ::Providers::OpenshiftEnterprise::ContainerManager'").first
+ems = $evm.vmdb('ManageIQ_Providers_ContainerManager').where(:id => ems_id)
+raise "EMS lookup failed" if ems.nil?
 log(:info, ems.inspect)
+ems = ems.first
 
 OSE_HOST  = ems.hostname
 OSE_PORT  = ems.port

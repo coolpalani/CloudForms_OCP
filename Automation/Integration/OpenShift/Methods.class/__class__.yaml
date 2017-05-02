@@ -13,7 +13,7 @@ object:
   schema:
   - field:
       aetype: attribute
-      name: ose_host
+      name: ose_port
       display_name: 
       datatype: string
       priority: 1
@@ -33,7 +33,7 @@ object:
       max_time: 
   - field:
       aetype: attribute
-      name: ose_port
+      name: ose_host
       display_name: 
       datatype: string
       priority: 1
